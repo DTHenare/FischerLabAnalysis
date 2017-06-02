@@ -1,0 +1,312 @@
+---
+title: "Results Summary for [enter lab name] lab"
+output: html_notebook
+---
+
+```{r, include=FALSE}
+rm(list=ls())
+# Load the data
+DataFolder = '' # Enter the folder that contains your results files e.g., "~/data/" of "c:/users/data/" depending on your platform.
+
+
+# Load Packages
+
+require(stringr)
+require(knitr)
+require(doBy)
+require(ez)
+require(apa)
+require(reshape2)
+require(ggplot2)
+require(cowplot)
+
+summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE, conf.interval=.95, .drop=TRUE) {
+  require(plyr)
+  
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=FALSE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  
+  # This is does the summary; it's not easy to understand...
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun= function(xx, col, na.rm) {
+                   c( N    = length2(xx[,col], na.rm=na.rm),
+                      mean = mean   (xx[,col], na.rm=na.rm),
+                      sd   = sd     (xx[,col], na.rm=na.rm)
+                   )
+                 },
+                 measurevar,
+                 na.rm
+  )
+  
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean"=measurevar))
+  
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  
+  return(datac)
+}
+
+normDataWithin <- function(data=NULL, idvar, measurevar, betweenvars=NULL,
+                           na.rm=FALSE, .drop=TRUE) {
+  require(plyr)
+  
+  # Measure var on left, idvar + between vars on right of formula.
+  data.subjMean <- ddply(data, c(idvar, betweenvars), .drop=.drop,
+                         .fun = function(xx, col, na.rm) {
+                           c(subjMean = mean(xx[,col], na.rm=na.rm))
+                         },
+                         measurevar,
+                         na.rm
+  )
+  
+  # Put the subject means with original data
+  data <- merge(data, data.subjMean)
+  
+  # Get the normalized data in a new column
+  measureNormedVar <- paste(measurevar, "_norm", sep="")
+  data[,measureNormedVar] <- data[,measurevar] - data[,"subjMean"] +
+    mean(data[,measurevar], na.rm=na.rm)
+  
+  # Remove this subject mean column
+  data$subjMean <- NULL
+  
+  return(data)
+}
+
+summarySEwithin <- function(data=NULL, measurevar, betweenvars=NULL, withinvars=NULL,
+                            idvar=NULL, na.rm=FALSE, conf.interval=.95, .drop=TRUE) {
+  
+  # Ensure that the betweenvars and withinvars are factors
+  factorvars <- vapply(data[, c(betweenvars, withinvars), drop=FALSE],
+                       FUN=is.factor, FUN.VALUE=logical(1))
+  
+  if (!all(factorvars)) {
+    nonfactorvars <- names(factorvars)[!factorvars]
+    message("Automatically converting the following non-factors to factors: ",
+            paste(nonfactorvars, collapse = ", "))
+    data[nonfactorvars] <- lapply(data[nonfactorvars], factor)
+  }
+  
+  # Get the means from the un-normed data
+  datac <- summarySE(data, measurevar, groupvars=c(betweenvars, withinvars),
+                     na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+  
+  # Drop all the unused columns (these will be calculated with normed data)
+  datac$sd <- NULL
+  datac$se <- NULL
+  datac$ci <- NULL
+  
+  # Norm each subject's data
+  ndata <- normDataWithin(data, idvar, measurevar, betweenvars, na.rm, .drop=.drop)
+  
+  # This is the name of the new column
+  measurevar_n <- paste(measurevar, "_norm", sep="")
+  
+  # Collapse the normed data - now we can treat between and within vars the same
+  ndatac <- summarySE(ndata, measurevar_n, groupvars=c(betweenvars, withinvars),
+                      na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+  
+  # Apply correction from Morey (2008) to the standard error and confidence interval
+  #  Get the product of the number of conditions of within-S variables
+  nWithinGroups    <- prod(vapply(ndatac[,withinvars, drop=FALSE], FUN=nlevels,
+                                  FUN.VALUE=numeric(1)))
+  correctionFactor <- sqrt( nWithinGroups / (nWithinGroups-1) )
+  
+  # Apply the correction factor
+  ndatac$sd <- ndatac$sd * correctionFactor
+  ndatac$se <- ndatac$se * correctionFactor
+  ndatac$ci <- ndatac$ci * correctionFactor
+  
+  # Combine the un-normed means with the normed results
+  merge(datac, ndatac)
+}
+
+
+
+
+# Some parameters
+n.totalTrails = 800
+n.catchTrials = 160
+errorCriterion = .05
+blocks = 5
+
+
+
+AllDataFiles = list.files(pattern = "*_data.txt")
+AllCodes = substr(AllDataFiles,str_locate(AllDataFiles[1], '_[^_]*')[1] + 1, str_locate(AllDataFiles[1], '_[^_]*')[2])
+
+AllData = list() # Make a new enviroment to hold ALL the data
+
+for(f in 1:length(AllDataFiles)){
+
+  thisData = read.table(AllDataFiles[f], header = T)
+  thisData$Code  = rep(AllCodes[f],n.totalTrails)
+  thisData$RT = thisData$RT * 1000 # convert to ms
+  thisData$digitLevel = (c("low","high"))[((thisData$Cue>5)+1)]
+  eval(parse(text = paste0("AllData$", AllCodes[f], " =  thisData"))) # Anybody know how to do this better?
+}
+
+
+
+# Check these data for catch trial errors and other errrors 
+
+errorsTable.cols = c("Subject code","Catch trial errors","Other errors","Total Errors as % of total","Catch trial errors greater than 5%")
+errorsTable = matrix(ncol = length(errorsTable.cols), nrow = length(AllCodes))
+errorsTable = `colnames<-`(errorsTable,errorsTable.cols)
+errorsTable[,1] = AllCodes
+
+for(f in 1 : length(AllCodes)){
+thisData = AllData[[f]]
+catchTrialsErrors = sum(abs(thisData[thisData$Target == "c",]$Correct - 1))
+otherErrors = sum(abs(thisData[thisData$Target != "c",]$Correct - 1))
+
+errorsTable[f,2] = round(catchTrialsErrors / (n.catchTrials/100), 2)
+errorsTable[f,3] = round(otherErrors / (n.totalTrails/100 - n.catchTrials/100), 2)
+errorsTable[f,4] = round((catchTrialsErrors + otherErrors) / (n.totalTrails/100), 2)
+errorsTable[f,5] = (catchTrialsErrors / n.catchTrials) > errorCriterion
+}
+
+GoodSubjects = AllCodes[!as.logical(errorsTable[,5])]
+BadSubjects = AllCodes[as.logical(errorsTable[,5])]
+
+```
+
+
+
+# Data checking
+
+The data from `r length(AllCodes)` participants has been loaded. `r sum(as.logical(errorsTable[,5]))` participants have catch trial error rates above `r errorCriterion * 100`%. A summary is shown below. 
+
+`r kable(errorsTable)`
+
+## Distribution of errors
+
+If you have rejected participants then the distribution of errors will be show below.
+
+```{r, echo=F}
+
+# Plot some error distribtions
+if(sum(as.logical(errorsTable[,5])) > 0){
+BadSubjects.n = (1:length(AllCodes))[AllCodes %in% BadSubjects]
+
+plots = NULL
+for(i in 1 : length(BadSubjects)){
+  
+thisData = AllData[[BadSubjects.n[i]]]
+type = rep(0,1,800)
+type[thisData$Target == "c"] = 1
+type[thisData$Target != "c"] = 2
+df = data.frame(t = 1:800, error = abs(thisData$Correct -1), type = as.factor(type))
+df = df[df$error == 1,]
+
+plots[[i]] = ggplot() + geom_point(data = df, aes(x = t, y = error, color = type))  + scale_color_discrete("Error type", labels = c("Catch","Other")) + 
+  scale_y_continuous(name = NULL, breaks = c(1,1), labels = c("","Error"), limits = c(1,1)) + 
+  scale_x_continuous(name = "Trial Number", breaks = seq(0,n.totalTrails,n.totalTrails / blocks)) + ggtitle(paste0("Error distribution for ",AllCodes[i]))
+
+}
+
+
+
+
+for(i in 1 : length(plots)){
+print(plots[[i]])
+plot.new()
+}
+}
+```
+
+# Analysis
+
+Below is a table of the condition averages and within-subject standard errors
+
+```{r, echo=F}
+
+TakeGoodTrials<-function(x){
+  thisData = GoodData[[x]]
+  thisData = thisData[thisData$Target != "c" & thisData$Correct == 1,]
+  return(thisData)
+}
+
+GoodData = as.list(AllData[(1:length(AllCodes))[AllCodes %in% GoodSubjects]])
+GoodData.GoodTrials = lapply(X = 1:length(GoodData), FUN = TakeGoodTrials);
+
+BigFrame = Reduce(function(x,y) rbind(x,y), as.list(GoodData.GoodTrials))
+BigFrame$RT = BigFrame$RT  # covert to milliseconds
+BigFrame$digitLevel = as.factor(BigFrame$digitLevel)
+BigFrame$Delay = as.factor(BigFrame$Delay)
+
+
+SubjectAverages = summaryBy(RT ~ Target + digitLevel + Delay + Code + Target, BigFrame, keep.names = T)
+
+data.summary = summarySEwithin(data = SubjectAverages, measurevar = "RT", idvar = "Code", withinvars = c("digitLevel","Delay","Target"))
+```
+
+
+`r kable(data.summary[c(1,2,3,4,5,8)])`
+
+
+
+```{r, echo=FALSE}
+the.figure = ggplot(data = data.summary, aes(x = Delay, y = RT, ymin = RT - ci, ymax = RT + ci, group = Target, colour = Target)) + geom_errorbar(width = .2) + geom_point() + geom_line() + facet_grid(. ~ digitLevel, labeller = as_labeller(c("high" = "High Digit","low" = "Low Digit"))) + xlab("Delay duration (ms)") + ylab("Reaction time (ms)") + scale_colour_manual("Target location",values = c("blue","red"),labels = c("Left","Right")) 
+```
+
+```{r, include=T, echo=F}
+print(the.figure)
+```
+
+
+```{r, echo=F}
+# Lets do an ANOVA
+SubjectAverages$Code = as.factor(SubjectAverages$Code)
+SubjectAverages$Target = as.factor(SubjectAverages$Target)
+SubjectAverages = droplevels(SubjectAverages)
+full.aov =  ezANOVA(data = SubjectAverages, dv = RT, wid = Code, within = .(digitLevel,Delay,Target),detailed = T)
+
+# Lets do some subtractions to work out the effect
+CalcCongruency<-function(x){
+thisData = GoodData.GoodTrials[[x]]
+thisData$congruency = ((thisData$digitLevel == "high" & thisData$Target == "r") + (thisData$digitLevel == "low" & thisData$Target == "l")) == 1 
+thisData.wide = dcast(data = summaryBy(RT ~ Delay + congruency + Code, thisData, keep.names = T), formula = Delay + Code  ~ congruency, value.var = "RT")
+thisData.wide$effect = (thisData.wide$`TRUE` - thisData.wide$`FALSE`) 
+return(thisData.wide[c(1,2,5)])
+}
+
+CongruencyData = Reduce(function(x,y) rbind(x,y),lapply(X = 1:length(GoodData), FUN = CalcCongruency))
+
+Congruency.table = describe(dcast(data = CongruencyData, formula = Code ~ Delay, value.var = "effect")[c(2,3,4,5)],check = T)
+# Add some confidence intervals based on the t-dist
+Congruency.table$ci = Congruency.table$se * qt(.975, Congruency.table$n-1) 
+
+
+delays = unique(CongruencyData$Delay)
+sig = vector()
+sig.dir = vector()
+t.text = vector()
+
+for(d in 1 : length(delays)){
+  this.t = t.test(CongruencyData[CongruencyData$Delay == delays[d],]$effect)
+  sig[d] = this.t$p.value < 0.05
+  sig.dir[d] = this.t$statistic > 0 & this.t$p.value<0.05
+  t.text[d] =  apa::t_apa(this.t,format = "rm", print = F)
+}
+
+
+```
+
+## Statistical analysis
+
+Fischer et al (2003) analysed the data by means of a  2 $\times$ 2 $\times$ 4 ANOVA. The effect of interest was the digit level $\times$ target location interaction. This interaction was `r ifelse(full.aov[[1]][full.aov[[1]]$Effect == "digitLevel:Target",7] < 0.05, "significant","not significant")`, `r anova_apa(full.aov,"digitLevel:Target",print = F, format = "rm")`. Next we examined each delay separately to see whether it showed the effect of interest. This was done by conducting one sample *t*-tests on the congruency effect. The congruency effect was calculated as the difference between the RTs for congruent targets (left targets preceded by low digits and right targets preceded by high digits) and the RTs for incongruent targets (right targets preceded by low digits and left targets preceded by high digits).The results for the 250 ms delay were: `r t.text[1]`. And for the 500 ms delay: `r t.text[2]`. And for the 750 ms delay: `r t.text[3]`. And for the 1000 ms delay: `r t.text[4]`. `r sum(sig)` of the effects were significant, and `r sum(sig.dir)` were also in the correct direction. 
+
+
+`r kable(Congruency.table)`
+
+
