@@ -141,7 +141,7 @@ blocks = 5
 
 
 
-AllDataFiles = list.files(pattern = "*_data.txt")
+AllDataFiles = list.files(path = DataFolder, pattern = "*_data.txt")
 AllCodes = substr(AllDataFiles,str_locate(AllDataFiles[1], '_[^_]*')[1] + 1, str_locate(AllDataFiles[1], '_[^_]*')[2])
 
 AllData = list() # Make a new enviroment to hold ALL the data
