@@ -1,12 +1,12 @@
 ---
-title: "Results Summary for [enter lab name] lab"
+title: "Results Summary for Corballis lab"
 output: html_notebook
 ---
 
 ```{r, include=FALSE}
 rm(list=ls())
 # Load the data
-DataFolder = '' # Enter the folder that contains your results files e.g., "~/data/" of "c:/users/data/" depending on your platform.
+DataFolder = "C:/Users/dhen061/Desktop/Fischer RRR/" # Enter the folder that contains your results files e.g., "~/data/" of "c:/users/data/" depending on your platform.
 
 
 # Load Packages
