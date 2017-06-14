@@ -152,7 +152,7 @@ for(f in 1:length(AllDataFiles)){
   thisData$Code  = rep(AllCodes[f],n.totalTrails)
   thisData$RT = thisData$RT * 1000 # convert to ms
   thisData$digitLevel = (c("low","high"))[((thisData$Cue>5)+1)]
-  eval(parse(text = paste0("AllData$", AllCodes[f], " =  thisData"))) # Anybody know how to do this better?
+  eval(parse(text = paste0("AllData$P", AllCodes[f], " =  thisData"))) # Anybody know how to do this better?
 }
 
 
