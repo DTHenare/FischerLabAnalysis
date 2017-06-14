@@ -1,14 +1,14 @@
 function writeToText()
 try
-    dataDir = uigetdir('Please select the folder will all the data files');
+    [files,dataFolder] = uigetfile('*_data.mat','Select the data files you want analysed','MultiSelect', 'on');
     
     
-    files = struct2cell(dir([dataDir filesep '*_data.mat']))';
-    files = cellfun(@(d,f) [d filesep f],files(:,2),files(:,1),'UniformOutput',false);
+    
+    
     
     
     for f = 1 : length(files)
-        file = files{f};
+        file = strcat(dataFolder,files{f});
         
         [path, name, ~] = fileparts(file);
         
