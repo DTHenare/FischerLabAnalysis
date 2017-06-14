@@ -281,7 +281,7 @@ return(thisData.wide[c(1,2,5)])
 }
 
 CongruencyData = Reduce(function(x,y) rbind(x,y),lapply(X = 1:length(GoodData), FUN = CalcCongruency))
-
+require(Hmisc)
 Congruency.table = describe(dcast(data = CongruencyData, formula = Code ~ Delay, value.var = "effect")[c(2,3,4,5)],check = T)
 # Add some confidence intervals based on the t-dist
 Congruency.table$ci = Congruency.table$se * qt(.975, Congruency.table$n-1) 
