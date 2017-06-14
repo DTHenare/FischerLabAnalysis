@@ -148,7 +148,7 @@ AllData = list() # Make a new enviroment to hold ALL the data
 
 for(f in 1:length(AllDataFiles)){
 
-  thisData = read.table(AllDataFiles[f], header = T)
+  thisData = read.table(paste0(DataFolder,AllDataFiles[f]), header = T)
   thisData$Code  = rep(AllCodes[f],n.totalTrails)
   thisData$RT = thisData$RT * 1000 # convert to ms
   thisData$digitLevel = (c("low","high"))[((thisData$Cue>5)+1)]
